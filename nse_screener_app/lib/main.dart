@@ -282,8 +282,8 @@ class _StockScreenerScreenState extends State<StockScreenerScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: verdictColor.withOpacity(0.15),
-                    border: Border.all(color: verdictColor.withOpacity(0.5)),
+                    color: verdictColor.withValues(alpha: 0.15),
+                    border: Border.all(color: verdictColor.withValues(alpha: 0.5)),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -310,7 +310,7 @@ class _StockScreenerScreenState extends State<StockScreenerScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: (isPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444)).withOpacity(0.15),
+                    color: (isPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444)).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -326,7 +326,7 @@ class _StockScreenerScreenState extends State<StockScreenerScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.cyan.withOpacity(0.15),
+                    color: Colors.cyan.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
