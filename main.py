@@ -1,6 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import json
 import urllib.request
 import ssl
@@ -10,7 +11,7 @@ import numpy as np
 
 app = FastAPI(title="NSE Stock Screener API")
 
-# --- CORS MIDDLEWARE (REQUIRED FOR FLUTTER WEB) ---
+# Enable CORS for all origins, methods, and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,7 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ---------------------------------------------------
+
+LATEST_STOCK_DATA = []
+IS_INITIALIZED = False
 
 # Stock List
 NSE_TICKERS = [
@@ -95,7 +98,7 @@ def fetch_stock_data(ticker, period_years=2):
         return None
 
 
-def fetch_hourly_rsi(ticker, days=30):
+def fetch_hourly_rsi(ticker, days=60):
     end_time = int(pd.Timestamp.now().timestamp())
     start_time = int((pd.Timestamp.now() - pd.Timedelta(days=days)).timestamp())
     
@@ -120,16 +123,21 @@ def fetch_hourly_rsi(ticker, days=30):
         }, index=pd.to_datetime(timestamps, unit='s'))
         
         df_1h.dropna(subset=['Close'], inplace=True)
-        if len(df_1h) < 14:
+        if len(df_1h) < 15:
             return 0.0
 
         delta = df_1h['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss.replace(0, np.nan)
-        df_1h['RSI'] = 100 - (100 / (1 + rs))
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
 
-        latest_rsi = df_1h['RSI'].iloc[-1]
+        # Wilder's RMA RSI formula
+        avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+
+        latest_rsi = rsi.iloc[-1]
         return round(latest_rsi, 2) if not pd.isna(latest_rsi) else 0.0
     except Exception:
         return 0.0
@@ -185,8 +193,10 @@ def analyze_single_stock(ticker):
 
     latest = df.iloc[-1]
 
-    ath = round(df['High'].max(), 2)
-    down_from_ath_pct = round(((ath - today_close) / ath) * 100, 2)
+    ath_idx = df['High'].idxmax()
+    ath_val = round(df['High'].max(), 2)
+    ath_date_str = ath_idx.strftime('%Y-%m-%d') if pd.notnull(ath_idx) else "N/A"
+    down_from_ath_pct = round(((ath_val - today_close) / ath_val) * 100, 2)
 
     ema_30w = round(latest['EMA_30W'], 2) if not pd.isna(latest['EMA_30W']) else 0.0
 
@@ -206,9 +216,9 @@ def analyze_single_stock(ticker):
     elif today_close < supp_tl: score -= 2
 
     if score >= 3: verdict = "STRONG BUY"
-    elif 1 <= score <= 2: verdict = "MODERATE BUY"
-    elif score == 0: verdict = "NEUTRAL / HOLD"
-    else: verdict = "AVOID / BEARISH"
+    elif 1 <= score <= 2: verdict = "BUY"
+    elif score == 0: verdict = "HOLD"
+    else: verdict = "AVOID"
 
     return {
         "Ticker": ticker.replace(".NS", ""),
@@ -216,7 +226,9 @@ def analyze_single_stock(ticker):
         "Today Close (INR)": today_close,
         "Price Change (INR)": price_change_inr,
         "Daily Change %": daily_change_pct,
-        "ATH Value": ath,
+        "ATH Price": ath_val,
+        "ATH Value": ath_val,
+        "ATH Date": ath_date_str,
         "Down % from ATH": down_from_ath_pct,
         "30W Macro EMA": ema_30w,
         "Macro Trend": macro_trend,
@@ -232,16 +244,48 @@ def analyze_single_stock(ticker):
         "Stop Loss": round(min(today_close * 0.95, supp_tl * 0.98), 2)
     }
 
+
+def run_full_scan():
+    global LATEST_STOCK_DATA, IS_INITIALIZED
+    print("Starting background stock scan...")
+    try:
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            results = list(executor.map(analyze_single_stock, NSE_TICKERS))
+        
+        cleaned = [r for r in results if r is not None]
+        if cleaned:
+            cleaned.sort(key=lambda x: x["Overall Score"], reverse=True)
+            LATEST_STOCK_DATA = cleaned
+            IS_INITIALIZED = True
+            print(f"Scan complete! {len(cleaned)} stocks updated.")
+    except Exception as e:
+        print(f"Scan error encountered: {e}")
+
+
+def background_loop():
+    while True:
+        run_full_scan()
+        time.sleep(180)
+
+
+# Start background scanner thread immediately upon app launch
+threading.Thread(target=background_loop, daemon=True).start()
+
+
 # FastAPI Endpoints
 @app.get("/api/scan-all")
-def scan_all_stocks():
-    results = []
-    for ticker in NSE_TICKERS:
-        data = analyze_single_stock(ticker)
-        if data:
-            results.append(data)
-    results.sort(key=lambda x: x["Overall Score"], reverse=True)
-    return {"status": "success", "data": results}
+def scan_all_stocks(response: Response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    
+    # Non-blocking return: serves available cached data instantly without hitting HTTP timeout
+    return {
+        "status": "success", 
+        "data": LATEST_STOCK_DATA,
+        "is_ready": IS_INITIALIZED
+    }
+
 
 @app.get("/api/stock/{ticker}")
 def scan_single(ticker: str):
