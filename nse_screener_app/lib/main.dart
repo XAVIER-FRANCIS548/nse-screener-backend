@@ -13,7 +13,7 @@ class StockApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Custom Portfolio NSE Screener',
+      title: 'Custom Portfolio Strategy Screener',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F172A),
         colorScheme: const ColorScheme.dark(
@@ -34,10 +34,9 @@ class StockDashboard extends StatefulWidget {
 }
 
 class _StockDashboardState extends State<StockDashboard> {
-  final TextEditingController _codeController = TextEditingController(text: 'KRISHANA');
+  final TextEditingController _codeController = TextEditingController(text: 'KARURVYSYA');
 
-  // Your custom stock portfolio list
-  final List<String> _customStocks = [
+  final List _customStocks = [
     "KRISHANA.NS", "KARURVYSYA.NS", "SKYGOLD.NS", "LAURUSLABS.NS", "PREMIERPOL.NS",
     "FREDUN.NS", "JAYKAY.NS", "MARINE.NS", "QPOWER.NS", "BCCFUBA.NS",
     "MACPOWER.NS", "RAMRAT.NS", "AXISCADES.NS", "TDPOWERSYS.NS", "SYRMA.NS",
@@ -57,30 +56,27 @@ class _StockDashboardState extends State<StockDashboard> {
     "USHAMART.NS", "V2RETAIL.NS", "VALIANT.NS", "WELCORP.NS", "WELENT.NS", "WINDLAS.NS"
   ];
 
-  String _activeTicker = 'KRISHANA';
-  String _stockName = 'Krishana Phoschem Limited';
-  double _cmp = 450.00;
-  double _athPrice = 600.00;
-  String _athDate = '2026-Peak';
-  List _history = [
-    {'duration': 30, 'date': '15-Aug-2026', 'ath': 600.00, 'drop': -25.00, 'signal': 2},
-  ];
+  String _activeTicker = 'KARURVYSYA';
+  String _stockName = 'The Karur Vysya Bank Limited';
+  double _cmp = 0.0;
+  double _athPrice = 0.0;
+  String _athDate = 'Recent Peak';
+  List _history = [];
   
   bool _isLoading = false;
-  String _serverStatus = 'Checking external server connection...';
+  String _serverStatus = 'Connecting to Server...';
 
   @override
   void initState() {
     super.initState();
     _checkExternalServer();
-    _fetchStockData('KRISHANA');
+    _fetchStockData('KARURVYSYA');
   }
 
-  // Check connection to external free financial server (Yahoo Finance API)
   Future<void> _checkExternalServer() async {
     try {
       final response = await http.get(
-        Uri.parse('https://query1.finance.yahoo.com/v1/finance/search?q=RELIANCE.NS'),
+        Uri.parse('https://query1.finance.yahoo.com/v1/finance/search?q=KARURVYSYA.NS'),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -99,7 +95,6 @@ class _StockDashboardState extends State<StockDashboard> {
     }
   }
 
-  // Fetch live market data for any stock from the list or custom search
   Future<void> _fetchStockData(String symbol) async {
     String cleanSymbol = symbol.toUpperCase().replaceAll('NSE:', '').replaceAll('.NS', '').trim();
     if (cleanSymbol.isEmpty) return;
@@ -117,15 +112,57 @@ class _StockDashboardState extends State<StockDashboard> {
         final data = json.decode(response.body);
         final result = data['chart']['result'][0];
         final meta = result['meta'];
+        final quotes = result['indicators']['quote'][0];
+        final highList = quotes['high'] ?? [];
+        final closeList = quotes['close'] ?? [];
         
-        double currentPrice = (meta['regularMarketPrice'] ?? meta['chartPreviousClose'] ?? 150.0).toDouble();
-        double previousHigh = (meta['regularMarketDayHigh'] ?? currentPrice * 1.2).toDouble();
+        double currentPrice = (meta['regularMarketPrice'] ?? (closeList.isNotEmpty ? closeList.last : 100.0)).toDouble();
+
+        double peakHigh = currentPrice;
+        int peakDaysAgo = 1;
+        
+        if (highList.isNotEmpty) {
+          for (int i = 0; i < highList.length; i++) {
+            if (highList[i] != null) {
+              double val = (highList[i] as num).toDouble();
+              if (val > peakHigh) {
+                peakHigh = val;
+                peakDaysAgo = highList.length - i;
+              }
+            }
+          }
+        } else {
+          peakHigh = (meta['fiftyTwoWeekHigh'] ?? (currentPrice * 1.15)).toDouble();
+        }
+
+        double dropPercentage = ((currentPrice - peakHigh) / peakHigh) * 100;
+        
+        int? buySignal;
+        if (dropPercentage <= -25) {
+          buySignal = 4;
+        } else if (dropPercentage <= -20) {
+          buySignal = 3;
+        } else if (dropPercentage <= -15) {
+          buySignal = 2;
+        } else if (dropPercentage <= -10) {
+          buySignal = 1;
+        }
 
         setState(() {
-          _stockName = meta['longName'] ?? meta['shortName'] ?? '$cleanSymbol (NSE Equity)';
+          _stockName = meta['longName'] ?? meta['shortName'] ?? '$cleanSymbol (NSE)';
           _cmp = currentPrice;
-          _athPrice = previousHigh > currentPrice ? previousHigh : currentPrice * 1.25;
-          _athDate = 'Recent Peak';
+          _athPrice = peakHigh;
+          _athDate = '$peakDaysAgo days ago';
+          
+          _history = [
+            {
+              'date': 'Peak Pullback Signal',
+              'duration': peakDaysAgo,
+              'ath': peakHigh,
+              'drop': dropPercentage,
+              'signal': buySignal,
+            }
+          ];
           _isLoading = false;
         });
       } else {
@@ -138,13 +175,22 @@ class _StockDashboardState extends State<StockDashboard> {
 
   void _loadFallbackData(String cleanSymbol) {
     setState(() {
-      _stockName = '$cleanSymbol (Custom Portfolio Stock)';
-      int hash = cleanSymbol.hashCode.abs();
-      _cmp = 100.0 + (hash % 2500).toDouble();
-      _athPrice = _cmp * 1.35;
-      _athDate = '2026-Peak';
+      _stockName = '$cleanSymbol (NSE Equity)';
+      double simulatedCmp = 370.05;
+      double simulatedAth = 374.60;
+      double dropVal = ((simulatedCmp - simulatedAth) / simulatedAth) * 100;
+      
+      _cmp = simulatedCmp;
+      _athPrice = simulatedAth;
+      _athDate = 'Recent Peak';
       _history = [
-        {'duration': 45, 'date': '01-Jul-2026', 'ath': _athPrice, 'drop': (((_cmp - _athPrice) / _athPrice) * 100), 'signal': 3},
+        {
+          'date': 'Current Pullback',
+          'duration': 5,
+          'ath': simulatedAth,
+          'drop': dropVal,
+          'signal': dropVal <= -10 ? 1 : null,
+        }
       ];
       _isLoading = false;
     });
@@ -152,7 +198,7 @@ class _StockDashboardState extends State<StockDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final double athDiff = ((_cmp - _athPrice) / _athPrice) * 100;
+    final double athDiff = _athPrice > 0 ? (((_cmp - _athPrice) / _athPrice) * 100) : 0.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -165,7 +211,6 @@ class _StockDashboardState extends State<StockDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Server status badge
             Container(
               padding: const EdgeInsets.all(8),
               margin: const EdgeInsets.only(bottom: 12),
@@ -232,7 +277,6 @@ class _StockDashboardState extends State<StockDashboard> {
               ),
             ),
             const SizedBox(height: 16),
-            // Quick portfolio chips bar
             const Text('Your Portfolio Watchlist:', style: TextStyle(fontSize: 13, color: Colors.grey)),
             const SizedBox(height: 6),
             SizedBox(
@@ -294,6 +338,8 @@ class _StockDashboardState extends State<StockDashboard> {
                 itemBuilder: (context, index) {
                   final row = _history[index];
                   double dropVal = (row['drop'] as num).toDouble();
+                  double athVal = (row['ath'] as num).toDouble();
+                  
                   return ListTile(
                     dense: true,
                     title: Text(
@@ -301,7 +347,7 @@ class _StockDashboardState extends State<StockDashboard> {
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     subtitle: Text(
-                      'ATH: ₹${row['ath']}  |  Drop: ${dropVal.toStringAsFixed(2)}%',
+                      'ATH: ₹${athVal.toStringAsFixed(2)}  |  Drop: ${dropVal.toStringAsFixed(2)}%',
                       style: TextStyle(
                         color: dropVal < -20 ? Colors.redAccent : Colors.orangeAccent,
                       ),
@@ -314,7 +360,13 @@ class _StockDashboardState extends State<StockDashboard> {
                             ),
                             backgroundColor: Colors.green.shade700,
                           )
-                        : null,
+                        : Chip(
+                            label: const Text(
+                              'Hold',
+                              style: TextStyle(color: Colors.white70, fontSize: 12),
+                            ),
+                            backgroundColor: Colors.grey.shade800,
+                          ),
                   );
                 },
               ),
