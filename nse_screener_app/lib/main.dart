@@ -61,6 +61,7 @@ class _StockDashboardState extends State<StockDashboard> {
   double _cmp = 0.0;
   double _athPrice = 0.0;
   String _athDate = 'Recent Peak';
+  double _prevClose = 0.0;
   List _history = [];
   
   bool _isLoading = false;
@@ -117,6 +118,7 @@ class _StockDashboardState extends State<StockDashboard> {
         final closeList = quotes['close'] ?? [];
         
         double currentPrice = (meta['regularMarketPrice'] ?? (closeList.isNotEmpty ? closeList.last : 100.0)).toDouble();
+        double previousClose = (meta['chartPreviousClose'] ?? meta['previousClose'] ?? (closeList.length > 1 ? closeList[closeList.length - 2] : currentPrice)).toDouble();
 
         double peakHigh = currentPrice;
         int peakDaysAgo = 1;
@@ -151,6 +153,7 @@ class _StockDashboardState extends State<StockDashboard> {
         setState(() {
           _stockName = meta['longName'] ?? meta['shortName'] ?? '$cleanSymbol (NSE)';
           _cmp = currentPrice;
+          _prevClose = previousClose;
           _athPrice = peakHigh;
           _athDate = '$peakDaysAgo days ago';
           
@@ -176,18 +179,16 @@ class _StockDashboardState extends State<StockDashboard> {
   void _loadFallbackData(String cleanSymbol) {
     setState(() {
       _stockName = '$cleanSymbol (NSE Equity)';
-      double simulatedCmp = 370.05;
-      double simulatedAth = 374.60;
-      double dropVal = ((simulatedCmp - simulatedAth) / simulatedAth) * 100;
-      
-      _cmp = simulatedCmp;
-      _athPrice = simulatedAth;
+      _cmp = 370.05;
+      _prevClose = 365.00;
+      _athPrice = 374.60;
       _athDate = 'Recent Peak';
+      double dropVal = ((_cmp - _athPrice) / _athPrice) * 100;
       _history = [
         {
           'date': 'Current Pullback',
           'duration': 5,
-          'ath': simulatedAth,
+          'ath': _athPrice,
           'drop': dropVal,
           'signal': dropVal <= -10 ? 1 : null,
         }
@@ -199,6 +200,8 @@ class _StockDashboardState extends State<StockDashboard> {
   @override
   Widget build(BuildContext context) {
     final double athDiff = _athPrice > 0 ? (((_cmp - _athPrice) / _athPrice) * 100) : 0.0;
+    final double dailyChangeAmt = _cmp - _prevClose;
+    final double dailyChangePct = _prevClose > 0 ? (dailyChangeAmt / _prevClose) * 100 : 0.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -301,6 +304,7 @@ class _StockDashboardState extends State<StockDashboard> {
               ),
             ),
             const SizedBox(height: 16),
+            // Expanded GridView including Daily Change Price & Percentage in the marked slot
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -316,6 +320,17 @@ class _StockDashboardState extends State<StockDashboard> {
                   'ATH Diff',
                   '${athDiff.toStringAsFixed(2)}%',
                   athDiff < 0 ? Colors.redAccent : Colors.greenAccent,
+                ),
+                // Newly added slots in your requested highlighted location:
+                _metricCard(
+                  'Daily Change (₹)',
+                  '${dailyChangeAmt >= 0 ? "+" : ""}₹${dailyChangeAmt.toStringAsFixed(2)}',
+                  dailyChangeAmt < 0 ? Colors.redAccent : Colors.greenAccent,
+                ),
+                _metricCard(
+                  'Daily Change (%)',
+                  '${dailyChangePct >= 0 ? "+" : ""}${dailyChangePct.toStringAsFixed(2)}%',
+                  dailyChangePct < 0 ? Colors.redAccent : Colors.greenAccent,
                 ),
               ],
             ),
