@@ -65,33 +65,45 @@ class _StockDashboardState extends State<StockDashboard> {
   List _history = [];
   
   bool _isLoading = false;
-  String _serverStatus = 'Connecting to Server...';
+  String _serverStatus = 'Server Status: Not Verified';
+  Color _statusColor = Colors.orangeAccent;
 
   @override
   void initState() {
     super.initState();
-    _checkExternalServer();
+    _verifyWebConnection();
     _fetchStockData('KARURVYSYA');
   }
 
-  Future<void> _checkExternalServer() async {
+  // Web Verification Option: Test connection to external API before downloading/building
+  Future<void> _verifyWebConnection() async {
+    setState(() {
+      _serverStatus = 'Verifying Web API Server...';
+      _statusColor = Colors.orangeAccent;
+    });
+
     try {
+      final stopwatch = Stopwatch()..start();
       final response = await http.get(
-        Uri.parse('https://query1.finance.yahoo.com/v1/finance/search?q=KARURVYSYA.NS'),
-      ).timeout(const Duration(seconds: 5));
+        Uri.parse('https://query1.finance.yahoo.com/v8/finance/chart/RELIANCE.NS?range=1d&interval=1d'),
+      ).timeout(const Duration(seconds: 6));
+      stopwatch.stop();
 
       if (response.statusCode == 200) {
         setState(() {
-          _serverStatus = 'External Free Server: Online & Connected';
+          _serverStatus = 'Web API Online (200 OK - ${stopwatch.elapsedMilliseconds}ms)';
+          _statusColor = Colors.greenAccent;
         });
       } else {
         setState(() {
-          _serverStatus = 'External Server Warning: Status ${response.statusCode}';
+          _serverStatus = 'Web API Warning: HTTP ${response.statusCode}';
+          _statusColor = Colors.redAccent;
         });
       }
     } catch (e) {
       setState(() {
-        _serverStatus = 'External Server: Offline / Restricted Network';
+        _serverStatus = 'Web API Offline / Network Restricted';
+        _statusColor = Colors.redAccent;
       });
     }
   }
@@ -118,7 +130,9 @@ class _StockDashboardState extends State<StockDashboard> {
         final closeList = quotes['close'] ?? [];
         
         double currentPrice = (meta['regularMarketPrice'] ?? (closeList.isNotEmpty ? closeList.last : 100.0)).toDouble();
-        double previousClose = (meta['chartPreviousClose'] ?? meta['previousClose'] ?? (closeList.length > 1 ? closeList[closeList.length - 2] : currentPrice)).toDouble();
+        
+        // Corrected previous close extraction for accurate daily change
+        double previousClose = (meta['previousClose'] ?? meta['chartPreviousClose'] ?? (closeList.length > 1 ? closeList[closeList.length - 2] : currentPrice)).toDouble();
 
         double peakHigh = currentPrice;
         int peakDaysAgo = 1;
@@ -214,8 +228,9 @@ class _StockDashboardState extends State<StockDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Web Server Verification Banner with manual re-test button
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E293B),
@@ -224,9 +239,23 @@ class _StockDashboardState extends State<StockDashboard> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.cloud_done, size: 16, color: Colors.greenAccent),
+                  Icon(Icons.cloud_sync, size: 18, color: _statusColor),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(_serverStatus, style: const TextStyle(fontSize: 12, color: Colors.white70))),
+                  Expanded(
+                    child: Text(
+                      _serverStatus,
+                      style: TextStyle(fontSize: 11, color: _statusColor, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: _verifyWebConnection,
+                    child: const Text('Verify Now', style: TextStyle(fontSize: 11, color: Colors.indigoAccent)),
+                  ),
                 ],
               ),
             ),
@@ -304,7 +333,7 @@ class _StockDashboardState extends State<StockDashboard> {
               ),
             ),
             const SizedBox(height: 16),
-            // Expanded GridView including Daily Change Price & Percentage in the marked slot
+            // Metric Cards Grid including corrected Daily Change (₹) & (%)
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -321,7 +350,6 @@ class _StockDashboardState extends State<StockDashboard> {
                   '${athDiff.toStringAsFixed(2)}%',
                   athDiff < 0 ? Colors.redAccent : Colors.greenAccent,
                 ),
-                // Newly added slots in your requested highlighted location:
                 _metricCard(
                   'Daily Change (₹)',
                   '${dailyChangeAmt >= 0 ? "+" : ""}₹${dailyChangeAmt.toStringAsFixed(2)}',
