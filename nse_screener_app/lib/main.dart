@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'dart:math';
 
 void main() {
   runApp(const StockApp());
@@ -21,11 +22,56 @@ class StockApp extends StatelessWidget {
           surface: Color(0xFF1E293B),
         ),
       ),
-      home: const StockDashboard(),
+      home: const MainNavigationWrapper(),
     );
   }
 }
 
+class MainNavigationWrapper extends StatefulWidget {
+  const MainNavigationWrapper({super.key});
+
+  @override
+  State<MainNavigationWrapper> createState() => _MainNavigationWrapperState();
+}
+
+class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
+  int _currentIndex = 0;
+
+  final List _screens = [
+    const StockDashboard(),
+    const CagrLookupScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        backgroundColor: const Color(0xFF1E293B),
+        selectedItemColor: Colors.indigoAccent,
+        unselectedItemColor: Colors.grey,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.show_chart),
+            label: 'Screener & Signals',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.analytics),
+            label: 'CAGR Lookup',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==================== SCREEN 1: MAIN SCREENER ====================
 class StockDashboard extends StatefulWidget {
   const StockDashboard({super.key});
 
@@ -75,7 +121,6 @@ class _StockDashboardState extends State<StockDashboard> {
     _fetchStockData('KARURVYSYA');
   }
 
-  // Web Verification Option: Test connection to external API before downloading/building
   Future<void> _verifyWebConnection() async {
     setState(() {
       _serverStatus = 'Verifying Web API Server...';
@@ -83,15 +128,13 @@ class _StockDashboardState extends State<StockDashboard> {
     });
 
     try {
-      final stopwatch = Stopwatch()..start();
       final response = await http.get(
-        Uri.parse('https://query1.finance.yahoo.com/v8/finance/chart/RELIANCE.NS?range=1d&interval=1d'),
+        Uri.parse('https://query1.finance.yahoo.com/v1/finance/search?q=RELIANCE.NS'),
       ).timeout(const Duration(seconds: 6));
-      stopwatch.stop();
 
       if (response.statusCode == 200) {
         setState(() {
-          _serverStatus = 'Web API Online (200 OK - ${stopwatch.elapsedMilliseconds}ms)';
+          _serverStatus = 'Web API Online (200 OK)';
           _statusColor = Colors.greenAccent;
         });
       } else {
@@ -130,8 +173,6 @@ class _StockDashboardState extends State<StockDashboard> {
         final closeList = quotes['close'] ?? [];
         
         double currentPrice = (meta['regularMarketPrice'] ?? (closeList.isNotEmpty ? closeList.last : 100.0)).toDouble();
-        
-        // Corrected previous close extraction for accurate daily change
         double previousClose = (meta['previousClose'] ?? meta['chartPreviousClose'] ?? (closeList.length > 1 ? closeList[closeList.length - 2] : currentPrice)).toDouble();
 
         double peakHigh = currentPrice;
@@ -182,33 +223,12 @@ class _StockDashboardState extends State<StockDashboard> {
           ];
           _isLoading = false;
         });
-      } else {
-        _loadFallbackData(cleanSymbol);
       }
     } catch (e) {
-      _loadFallbackData(cleanSymbol);
+      setState(() {
+        _isLoading = false;
+      });
     }
-  }
-
-  void _loadFallbackData(String cleanSymbol) {
-    setState(() {
-      _stockName = '$cleanSymbol (NSE Equity)';
-      _cmp = 370.05;
-      _prevClose = 365.00;
-      _athPrice = 374.60;
-      _athDate = 'Recent Peak';
-      double dropVal = ((_cmp - _athPrice) / _athPrice) * 100;
-      _history = [
-        {
-          'date': 'Current Pullback',
-          'duration': 5,
-          'ath': _athPrice,
-          'drop': dropVal,
-          'signal': dropVal <= -10 ? 1 : null,
-        }
-      ];
-      _isLoading = false;
-    });
   }
 
   @override
@@ -228,7 +248,6 @@ class _StockDashboardState extends State<StockDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Web Server Verification Banner with manual re-test button
             Container(
               padding: const EdgeInsets.all(10),
               margin: const EdgeInsets.only(bottom: 12),
@@ -246,15 +265,6 @@ class _StockDashboardState extends State<StockDashboard> {
                       _serverStatus,
                       style: TextStyle(fontSize: 11, color: _statusColor, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    onPressed: _verifyWebConnection,
-                    child: const Text('Verify Now', style: TextStyle(fontSize: 11, color: Colors.indigoAccent)),
                   ),
                 ],
               ),
@@ -285,7 +295,7 @@ class _StockDashboardState extends State<StockDashboard> {
                         child: TextField(
                           controller: _codeController,
                           decoration: const InputDecoration(
-                            labelText: 'Enter Ticker (e.g. KRISHANA, LAURUSLABS)',
+                            labelText: 'Enter Ticker (e.g. ITC, RELIANCE)',
                             border: OutlineInputBorder(),
                             isDense: true,
                           ),
@@ -333,7 +343,6 @@ class _StockDashboardState extends State<StockDashboard> {
               ),
             ),
             const SizedBox(height: 16),
-            // Metric Cards Grid including corrected Daily Change (₹) & (%)
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -444,6 +453,260 @@ class _StockDashboardState extends State<StockDashboard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ==================== SCREEN 2: LIVE DYNAMIC CAGR LOOKUP TAB ====================
+class CagrLookupScreen extends StatefulWidget {
+  const CagrLookupScreen({super.key});
+
+  @override
+  State<CagrLookupScreen> createState() => _CagrLookupScreenState();
+}
+
+class _CagrLookupScreenState extends State<CagrLookupScreen> {
+  final TextEditingController _cagrSearchController = TextEditingController(text: 'ITC');
+
+  String _stockName = 'ITC Limited';
+  double _cmp = 0.0;
+  double? _cagr1y;
+  double? _cagr3y;
+  double? _cagr5y;
+  double? _cagr10y;
+  String _industry = 'Consumer Goods';
+  String _mcap = 'Largecap';
+  bool _isLoading = false;
+  String _errorMsg = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLiveCagrData('ITC');
+  }
+
+  Future<void> _fetchLiveCagrData(String symbol) async {
+    String cleanSymbol = symbol.toUpperCase().replaceAll('NSE:', '').replaceAll('.NS', '').trim();
+    if (cleanSymbol.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMsg = '';
+    });
+
+    try {
+      final url = Uri.parse('https://query1.finance.yahoo.com/v8/finance/chart/$cleanSymbol.NS?range=max&interval=1d');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final result = data['chart']['result'][0];
+        final meta = result['meta'];
+        final timestamps = result['timestamp'] ?? [];
+        final quotes = result['indicators']['quote'][0];
+        final closeList = quotes['close'] ?? [];
+
+        double currentPrice = (meta['regularMarketPrice'] ?? (closeList.isNotEmpty ? closeList.last : 0.0)).toDouble();
+        
+        List historicalPrices = [];
+        for (int i = 0; i < timestamps.length; i++) {
+          if (i < closeList.length && closeList[i] != null && timestamps[i] != null) {
+            historicalPrices.add({
+              'time': DateTime.fromMillisecondsSinceEpoch(timestamps[i] * 1000),
+              'close': (closeList[i] as num).toDouble(),
+            });
+          }
+        }
+
+        double? cagr1 = _calculateCagr(historicalPrices, currentPrice, 1);
+        double? cagr3 = _calculateCagr(historicalPrices, currentPrice, 3);
+        double? cagr5 = _calculateCagr(historicalPrices, currentPrice, 5);
+        double? cagr10 = _calculateCagr(historicalPrices, currentPrice, 10);
+
+        setState(() {
+          _stockName = meta['longName'] ?? meta['shortName'] ?? '$cleanSymbol (NSE)';
+          _cmp = currentPrice;
+          _cagr1y = cagr1;
+          _cagr3y = cagr3;
+          _cagr5y = cagr5;
+          _cagr10y = cagr10;
+          _industry = meta['sector'] ?? 'NSE Listed Equity';
+          _mcap = currentPrice > 1000 ? 'Largecap' : 'Midcap';
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _errorMsg = 'Stock ticker not found on exchange.';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMsg = 'Error connecting to market server.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  double? _calculateCagr(List history, double currentPrice, int years) {
+    if (history.isEmpty) return null;
+    DateTime targetDate = DateTime.now().subtract(Duration(days: years * 365));
+    
+    dynamic pastRecord;
+    for (var record in history) {
+      DateTime dt = record['time'];
+      if (dt.isBefore(targetDate) || dt.isAtSameMomentAs(targetDate)) {
+        pastRecord = record;
+      } else {
+        if (pastRecord == null) pastRecord = record;
+        break;
+      }
+    }
+
+    if (pastRecord == null || pastRecord['close'] <= 0) return null;
+    double pastPrice = pastRecord['close'];
+
+    double cagr = (pow((currentPrice / pastPrice), (1 / years)) - 1) * 100;
+    return double.parse(cagr.toStringAsFixed(1));
+  }
+
+  Color _getCagrColor(double? val) {
+    if (val == null) return Colors.grey.shade800;
+    if (val > 20) return Colors.green.shade800;
+    if (val > 0) return Colors.green.shade900.withOpacity(0.5);
+    return Colors.red.shade900.withOpacity(0.6);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Live Interactive CAGR Lookup'),
+        backgroundColor: const Color(0xFF1E293B),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E293B),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF334155)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Lookup Stock Live CAGR',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.indigoAccent),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _cagrSearchController,
+                          decoration: const InputDecoration(
+                            labelText: 'Enter Stock Code (e.g. ITC, RELIANCE, TCS)',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          onSubmitted: (val) => _fetchLiveCagrData(val),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6366F1),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        ),
+                        onPressed: () => _fetchLiveCagrData(_cagrSearchController.text),
+                        child: _isLoading 
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('Lookup', style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            if (_isLoading)
+              const Center(child: Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator()))
+            else if (_errorMsg.isNotEmpty)
+              Center(child: Padding(padding: EdgeInsets.all(32.0), child: Text(_errorMsg, style: const TextStyle(color: Colors.redAccent))))
+            else
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF6366F1), width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _stockName,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Industry: $_industry  |  Segment: $_mcap',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const Divider(height: 24, color: Color(0xFF334155)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Market Price (CMP):', style: TextStyle(color: Colors.white70)),
+                        Text('₹${_cmp.toStringAsFixed(2)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.yellowAccent)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Compound Annual Growth Rate (CAGR):', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigoAccent)),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _cagrBadge('10Y', _cagr10y),
+                        _cagrBadge('5Y', _cagr5y),
+                        _cagrBadge('3Y', _cagr3y),
+                        _cagrBadge('1Y', _cagr1y),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cagrBadge(String label, double? val) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _getCagrColor(val),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            val != null ? '$val%' : 'N/A',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+        ),
+      ],
     );
   }
 }
